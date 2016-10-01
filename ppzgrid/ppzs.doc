@@ -1,0 +1,334 @@
+Perhaps the best way to document the use of the matlab scripts for
+functions ppzinit (ppzgrid), ppsmooth and pp2xyz is to give some
+examples.  If you used the GMT versions then you are probably 
+familiar with the basic optional argument construct.
+
+
+%  ppz_test02a.m
+clear all
+
+load ppzgrid01.dat
+[my, mx] = size (ppzgrid01);
+mymat = ppzgrid01;
+
+command = '-R0/350/0/5000'
+
+     % No masking.
+% command = [command ' -I70/500 ']
+     % Masking.
+  command = [command ' -I70/500 -M./ppzmask02.gxy']
+     % Use GUI.
+% command = ['WIN']
+
+[Z, grd_struct] = ppzinit (mymat, command)
+
+
+
+%  pps_test02b.m
+
+     % The default.
+  [ZS, grd_new] = ppsmooth (Z, grd_struct, ' -V')
+     % Resample test.
+% [ZS, grd_new] = ppsmooth (Z, grd_struct, '-FL  -R70/350/0/5000 -I140/1000')
+     % Use GUI.
+% [ZS, grd_new] = ppsmooth (Z, grd_struct, 'WINDOW')
+
+
+     % Convert to GMT 2 column form.
+Z3col = pp2xyz (ZS, grd_new)
+     % Convert and create a file.
+Z3col = pp2xyz (ZS, grd_new, 'for_xyz2grd.xyz');
+
+
+
+
+SOFTWARE
+
+ppzs.doc            - This document
+
+ppzinit.m           - The main function invoked to perform ppzgrid operation.
+  ppzinit_win.m     - Optional GUI interface for ppzinit.
+    ppz_win_act.m   - Utility routine to process GUI actions.
+  ppzgrid.m         - .m file implementation of the ppzgrid algorithm.
+    set_new         - internal function used in the ppzgrid script.
+    del2_510.m      - The Matlab version of del2 from version 5.10.
+      parse_inputs  - internal function used in the del2_510 script.
+
+
+ppsmooth.m          - The main function invoked to perform ppsmooth operation.
+  ppsmoo_win.m      - Optional GUI interface for ppsmooth.
+    ppz_win_act.m   - Utility routine to process GUI actions.
+
+
+pp2xyz.m            - Utility function puts data in a form suitable for GMT.
+
+
+Assemblage of important notes extracted from software.
+
+PPZINIT:
+
+% Usage:   [Z, grd_struct] = ppzinit (mymat, command)
+%    mymat     - is a three column matrix containing the randomly spaced
+%                observation triplets {x, y, z}
+%    command   - is the GMT style command.  Some of the options are 
+%                detailed below.
+%                If the command begins with the identifier 'WIN' the
+%                user will be presented with a graphical user interface.
+%
+%       command arguments:  -I<dx>[/<dy>]  -R<west/east/south/north> 
+%                  [-E<empty>/[<mask_val>]]  [-C<eps> ]  [-M<mask_file> ]
+%                  [-N<max_iter>] [-S<search_radius> ] [-T<tension> ]
+%                  [-V ] 
+%          Required:
+%             -I sets the grid spacing for the grid.
+%             -R specifies the min/max coordinates of data region in user units.
+%          Optional:
+%             -E value to use for empty nodes [Default is Nan].
+%                If mask value not specified, default = <empty>.
+%             -C set the convergence criteria epsilon.  [0.002]
+%             -M specify multi-polygon format masking file.
+%                Polygon separating headers may specify ['INSIDE']
+%                or 'OUTSIDE' immediately after the '>' character.
+%                A 'C'|'c' immediately after the '>' character indicates 
+%                cell mode specification.  In this mode the {x y <mask>}
+%                triplet is given.
+%                The <mask> value, if given, is 1 (default) for masking.
+%                A zero (0) value causes the cell to be unmasked.
+%                NOTE:  Some words about masking.  Very powerful, and unlike
+%                GMT which masks after the grid is generated, here the 
+%                masking is done prior to the computation and carried through.
+%                It comes with a price.  Example:
+%                5776 records, 0.1 km resolution along bottom took 90 sec
+%                to apply the mask.  But the Delta X grid spacing was only
+%                2 km.  So by sub-sampling the mask to 2 km resolution
+%                the time was reduced to 7 seconds.  Further, the X range
+%                only went out to 200 km, not 577.  So cutting the mask
+%                back to 200km further reduced the time to 4.5 sec.  So be
+%                intelligent in applying the mask.  That said, masking is
+%                often better than leaving it blank.  Blank, i.e. no data,
+%                regions tend to introduce edge effects, especially 
+%                noticeable in the computation of the DZ field and the 
+%                resulting convergence.  Left blank, the above analysis 
+%                went through the default 100 iterations at about 1 sec per
+%                iteration.  Using the mask allowed convergence in 40 
+%                passes.
+%             -N set the max convergence iterations.  [100]
+%             -S set the search radius, in integer grid intervals => 1.
+%                If no data is within range of a node it is set to empty.
+%                Default is -S5
+%             -T adds tension to gridding procedure; range [0 -> infinity].
+%                A zero value gives a Lagrangian effect with tent-pole like
+%                behavior around data points.  Higher values give a spline
+%                effect with a smoother field but the possibility of spurious
+%                peaks or valleys.
+%                A value of 5 is normal and is the default.
+%             -V Run in verbose mode [OFF].
+% Returns:
+%    Z         - the gridded array of z values at the nodes specified
+%                by the values in the structure.
+%    grd_struct- is a structure containing elements which define the grid.
+%                It simplifies the subsequent use of ppsmooth and may also
+%                be used to generate a meshgrid. 
+%                struct ('x_min', xmin, ...
+%                        'x_max', xmax, ...
+%                        'y_min', ymin, ...
+%                        'y_max', ymax, ...
+%                        'x_inc', DX, ...
+%                        'y_inc', DY, ...
+%                        'nx', NX, ...
+%                        'ny', NY, ...
+%                        'missing', empty, ...
+%                        'masked', mask_val);
+%
+%
+%
+
+          % Here is were we do the mask check.  I repeat, this method
+          % is being used to replicate the original zgrid procedure.
+          % In the future one might look at the gmt/grdmask code and the
+          % use of the non-zero_winding/out_edge_in routines to do the
+          % polygon check.  Two very important notes.  The uniqueness
+          % of this procedure is that it performs the masking before
+          % the gridding, whereas gmt applies the mask afterward, or
+          % more correctly does not consider it in the gridding routines
+          % surface and nearneighbor.  Second, and also crucial, is
+          % the array order.  GMT considers the grd format rows as
+          % starting at ymax, i.e. top down like a monitor image.  The
+          % zgrid routine is stored in the math convention from the
+          % bottom up, i.e. first row at ymin.  I load them this
+          % latter way and flip it later.  The zgrid is unidirectional
+          % in that it uses a point in place smoothing and will not
+          % produce the same results starting at a corner other that
+          % xmin/ymin.  You can sometimes approach the same effect with
+          % small convergence values but I repeat, the process is
+          % not in general transmutable.
+          %
+          % This should be a good candidate for vectorization.
+          % The Matlab implementation of inpolygon returns 0.5 is the
+          % point is on the line.  We consider this out of the polygon
+          % for compatibility with the GMT version but I think the
+          % other way gives better results..
+
+     % I've eventually decided, for compatibility with ppsmooth,
+     % to only return the structure.  But here they are if you want them.
+
+
+PPZGRID:
+
+%%  Because a lot of this is in-place processing it is very order
+%%  dependent and definitely does not lend itself to vectorization.
+%%  Are there other ways of doing it? Most assuredly, but they would
+%%  not produce the same results and thats the thing here.
+%%  Matlab version has the following 'refinements'.
+
+
+PPSMOOTH:
+
+% Function ppsmooth
+%
+% The current version uses an adaptation of the old Plot+ smooth
+% routine to do an alternating, in-place 1 point Laplacian algorithm,
+% with missing values excluded (sort of).
+% z = z + 0.25*(average (zn, ze, zs, zw) - z)
+% From Oceanography, EMR Oct 1969.
+%
+% Originally I put in a thing to smooth the same as Matlab did the
+% DEL2 operator.  It was out of date within a week as I originally
+% implemented the 5.1.0 version as filter_type='l'. With the release
+% of version 5.1.2 they changed the way the edge or boundary
+% conditions were implemented, resulting in filter_type='d'.
+% filter_type = 'l'   take forward differences on edges based on a
+%                     third order approximation.
+% filter_type = 'd'   does something different, extrapolated centered
+%                     second differences or some such thing.
+% The release of 6.1.0 indicates the code DEL2 code has a new revision
+% date but fortunately the code is the same.
+%
+% function [ZOUT, grd_struct] = ppsmooth (ZIN, grd, command)
+% Inputs:
+%    ZIN      - the {row,col} matrix of z z values, perhaps generated by
+%               the routine ppzinit, but anything should work.
+%    grd      - a structure whose elements are defined below.  This is a
+%               returned parameter if ppzinit was used.
+%                It may be used to generate a meshgrid.
+%                struct ('x_min', xmin, ...
+%                        'x_max', xmax, ...
+%                        'y_min', ymin, ...
+%                        'y_max', ymax, ...
+%                        'x_inc', DX, ...
+%                        'y_inc', DY, ...
+%                        'nx', NX, ...
+%                        'ny', NY, ...
+%                        'missing', empty, ...
+%                        'masked', mask_val);
+%    command   - is the GMT style command.  Some of the options are 
+%                detailed below.
+%                If the command begins with the identifier 'WIN' the
+%                user will be presented with a graphical user interface.
+%       command arguments: [-D<distance_flag>]
+%           [-E<empty>/<mask_val>]  [-F<type><filter_weight>]
+%           [-I<xinc>[/<yinc>] ] [-N]
+%           [-R<west/east/south/north>] [-S<smooth_passes>] [-V]
+%
+%
+%        Optional:
+%           -D Distance flag determines how grid (x,y) maps into distance units
+%              as follows:
+%              -D0 grid x,y as node distances, cartesian Distances.
+%           -E value to use for empty nodes [Default is NaN].
+%              If mask value not specified, default = <empty>.
+%           -F sets the filter type and filter_weight.  Choose between
+%              (S|s)moothing filter, from Plot+
+%              (L|l)aplacian filter, from Matlab 5.10
+%              (D|d)el2 Laplacian filter, from Matlab 5.12
+%           -I for new Increment of output grid; 
+%              enter xinc, optionally xinc/yinc.
+%              Default is yinc = xinc.
+%              The new xinc and yinc should be divisible by the old;
+%              (new lattice is subset of old).
+%              NOTE: Smoothing is done after the sub-sampling so there
+%                 could be edge effects.
+%           -N Force pixel registration for output grid.
+%              [Default is gridline registration]
+%           -R for new Range of output grid; 
+%              enter <WESN> (xmin, xmax, ymin, ymax) separated by slashes.
+%               NOTE: Smoothing is done after the sub-region extraction
+%                     so there could be edge effects.
+%           -S specifies integer smoothing value >= 1. Default: [1]
+%           -V Run in verbose mode [OFF].
+%
+% Returns:
+%    Z         - the gridded array of z values.
+%    grd_struct- is a structure containing elements which define the grid.
+%                the structure is the same variable content as the input
+%                but would be updated to reflect any subsampling.
+
+     % Some initialization.  A slight difference here as the default 
+     % empty and mask values are set to NaN rather than zero, more
+     % in keeping with the Matlab environment.
+
+
+          % Now we can do the filtering  
+          % Following are some loops.  Notice that if the point or the filter
+          % point was bad we want to set the new output point to be bad.
+          % And then continue.  Great for C language but Matlab doesn't
+          % allow continue, next or even a nice old goto.  And I hate
+          % umpty layers of embedded if conditionals.  So we make some
+          % assumptions, for the better I believe.  The C implementation
+          % treated empty/masked values other than NaN but could potentially
+          % lead to trouble in multiple smoothing passes.  More in keeping
+          % with the Matlab environment we will convert indicated flagged
+          % values to Nan and then let Matlab have at it.
+
+
+       % Or is it a Del2 Laplacian, (per Matlab 5.12). 
+       % I ask myself:  if I originally took this from Matlab
+       % and put it in C why not just go back to calling the
+       % Matlab del2 function and get rid of this.  Well, I tried
+       % a test and you know what?  The results were identical.
+       % How extraordinarily gratifying.  Then I realized I put
+       % in all the checking for empty and masked values.  So to
+       % revert to the del2 I would probably have to do a find
+       % of all flagged values, change to NaNs, do the filter
+       % then put back in the masked values.
+       % Move the input array to output, then back to input in the new
+       % shape for processing.
+
+     % A nice touch would be to put back in the empty or masked flag
+     % values but its beyond this initial implementation.  Besides,
+     % it would have to be done on the resampled areas as well,
+     % which would probably mean making sure its tested before
+     % the conversion of everything to NaN.
+
+
+PP2XYZ:
+
+% Function pp2xyz
+% Function pp2xyz creates a matrix in the form or {x y z} triplets.
+% The program allows for the optional output of information to a 
+% specified file.
+% Usage:  [newmat] = pp2xyz (Zmat, grd_struct, (file_id, file_fmt) )
+% Inputs:
+%   Zmat - The  Z value matrix generated by functions ppzinit or ppsmooth.
+%   grd_struct - the structure storing the grid description;
+%      generated and returned by ppzinit or ppsmooth, it has the form.
+%       grd_struct = struct ('x_min', XVEC(1), ...
+%                     'x_max', XVEC(nx), ...
+%                     'y_min', YVEC(1), ...
+%                     'y_max', YVEC(ny), ...
+%                     'x_inc', DX, ...
+%                     'y_inc', DY, ...
+%                     'nx', NX, ...
+%                     'ny', NY, ...
+%                     'missing', empty, ...
+%                     'masked', mask_val);
+%   file_id - optional file identifier for output.
+%   file_fmt - optional format for output file.
+%              default:  '%g %g %g\n'
+% Outputs:
+%   newmat - the generated matrix containing of {x y z} in columns.
+
+
+     % Output the header.  This means you have to use the -H1 option 
+     % on the invocation of the GMT routine xyz2grd.
+
