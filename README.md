@@ -1,11 +1,13 @@
 # interpolation
 
-#Data format
-Hydrographic data is contained in XYZ.mat. XYZ is indexed by the occupation number (1-111). 
+## Data format
+
+### XYZ
+Hydrographic, station data are contained in XYZ.mat. XYZ is indexed by the occupation number (1-111). 
 
 The fields are as follows:
 
-.xyz = the data fed into the interpolator.
+.xyz = the data fed into the interpolator
 
 Columns represent the following: Distance-Depth-Property
 
@@ -15,19 +17,50 @@ Along the 3rd dimension of the matrix, the "Property" columns corresponds to the
 
 .information for each cast in the occupation (including datetime, lat, lon, and distance along the line)
 
+### Grids
+Gridded, hydrographic data for each occupation are contained in grids.mat. grids is indexed by occupation number as well.
 
-# XYZMod
+The fields are as follows:
+
+.name = same ".name" field in XYZ
+
+.mask = file that masks out bathymetry and unsampled regions of the strait
+
+.stagrdx = the locations of gridpoints nearest each station (in kilometers) 
+
+.X .Y .the .sal .sig = gridded X, Y, potential temperature, salinity, and potential density fields
+
+.arg = input into ppzgrid (interpolator). it contains the search radius "-S", tension factor "-T" and masking file name "-M"
+
+
+## Order which scripts are run
+XYZMod/create_xyz_batproj.m
+
+XYZMod/add_fake_dense_water.m
+
+(Depth)Gridding/grid_all.m
+
+(Depth)Gridding/regrid_low2high.m
+
+(Depth)Gridding/nan_grids.m
+
+ChooseGrids/combine_grids.m
+
+## Bathymetry
+This folder contains the bathymetry file LatBat.mat
+
+## XYZMod
 This folder contains scripts where the data were shifted and extrapolated before they were interpolated.
 
 
-# ppzgrid
+## ppzgrid
 The scripts which carry out the interpolation are contained in the ppzgrid folder. 
 
-#Gridding
+## Gridding
 Here data xyz are gridded in density space
 
-#DepthGridding
+## DepthGridding
 Here data xyz are gridded in depth space
 
-#ChooseGrids
+## ChooseGrids
 Depth and density grids are combined/selected for individual occupations
