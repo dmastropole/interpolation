@@ -36,7 +36,9 @@ The fields are as follows:
 ## Order which scripts are run
 XYZMod/create_xyz_batproj.m
 
-XYZMod/add_fake_dense_water.m
+XYZMod/add_fake_dense_water.m --> Gridding
+
+XYZMod/extrapolate_depth.m --> DepthGridding
 
 (Depth)Gridding/grid_all.m
 
