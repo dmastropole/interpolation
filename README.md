@@ -66,3 +66,13 @@ Here data xyz are gridded in depth space
 
 ## ChooseGrids
 Depth and density grids are combined/selected for individual occupations
+
+## Bolus
+This folder contains the scripts needed to generate the bolus shape files (and Figure 9). First the brunt vaisala frequency should be calcuated for gridded sections. Then the scrips should be run in the following order:
+
+bolus_contours.m
+
+bolus_size_contours.m
+
+bolus_transparencies.m
+
